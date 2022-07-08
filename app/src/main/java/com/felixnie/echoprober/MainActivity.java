@@ -1,9 +1,11 @@
 package com.felixnie.echoprober;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
@@ -44,15 +46,15 @@ import java.util.concurrent.Executors;
 /**
  * Modified by Hongtuo
  * Name:    EchoProber Client
- * Date:    2022/3/27
+ * Date:    2022/7/8
  * Note:    Stoppable recording     - Done.
  *          Main thread block-free  - Done.
  *          Accept remote control   - Done.
  *          Auto save configuration - Done.
- *          Play/Stop threading     - Working.
+ *          Play/Stop threading     - Done.
  *          File transmission       - Pending.
  *          Stable transmission     - Working.
- *          Real-time buffer update - Just can't. Damn.
+ *          Real-time buffer update - Pending.
  */
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
@@ -150,58 +152,41 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 mThreadPool.execute(new Runnable() {
                     @Override
                     public void run() {
+                        // check if it's already connected
+                        if (socket != null && !socket.isClosed()) {
+                            PostInfo("Already connected.");
+                            return;
+                        }
+
+                        // read host and port
                         String host = edtTxtHost.getText().toString();
                         int port = Integer.parseInt(edtTxtPort.getText().toString());
+
+                        // try to set up socket
                         try {
-                            // check if it's already connected
-                            if (socket != null && !socket.isClosed()) {
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Already connected." + "\n" + txtInfo.getText());
-                                    }
-                                });
-                                return;
-                            }
-                            // set up socket
                             socket = new Socket(host, port);
                             // check connection
                             if (socket.isConnected()) {
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Connected successfully." + "\n" + txtInfo.getText());
-                                    }
-                                });
-                            } else {
-                                // seems it's better to deal with connection failure in catch
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Connection failed." + "\n" + txtInfo.getText());
-                                    }
-                                });
+                                PostInfo("Connected successfully.");
+
+                                // set up socket input stream and buffered reader
+                                inputStream = socket.getInputStream();
+                                inputStreamReader = new InputStreamReader(inputStream);
+                                bufferedReader = new BufferedReader(inputStreamReader);
+
+                                // create and start data receive thread
+                                DataReceiveThread = new Thread(new DataReceiveThread());
+                                DataReceiveThread.start();
                             }
-                            // set up receiver
-                            inputStream = socket.getInputStream();
-                            inputStreamReader = new InputStreamReader(inputStream);
-                            bufferedReader = new BufferedReader(inputStreamReader);
-                            // create receiver thread
-                            DataReceiveThread = new Thread(new DataReceiveThread());
-                            DataReceiveThread.start();
                         } catch (IOException e) {
-                            // 3 popular methods for error printing:
+                            // note: 3 popular methods for error printing:
                             // e.printStackTrace(); // print error trace
                             // System.out.println(e.getMessage()); // print error message
                             System.out.println(e.toString()); // print error title and message
-                            // usually it's due to existed tcp connection
-                            // warn the user no matter what the true reason is
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Connection failed: connection existed." + "\n" + txtInfo.getText());
-                                }
-                            });
+
+                            // usually it's due to existing tcp connection
+                            // warn the user no matter what the real reason is
+                            PostInfo("Connection failed: connection refused.");
                         }
                     }
                 });
@@ -215,56 +200,30 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 mThreadPool.execute(new Runnable() {
                     @Override
                     public void run() {
+                        // check if it's already connected
+                        if (socket == null) {
+                            PostInfo("Please connect first.");
+                            return;
+                        }
+
+                        // check if it's already disconnected
+                        if (socket.isClosed()) {
+                            PostInfo("Already disconnected.");
+                            return;
+                        }
+
+                        // try to close socket
                         try {
-                            // check if it's already connected
-                            if (socket == null) {
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Please connect first." + "\n" + txtInfo.getText());
-                                    }
-                                });
-                                return;
-                            }
-                            // check if it's already disconnected
-                            if (socket.isClosed()) {
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Already disconnected." + "\n" + txtInfo.getText());
-                                    }
-                                });
-                                return;
-                            }
-                            // send "Goodbye."
-                            outputStream = socket.getOutputStream();
-                            String msg = "Goodbye." + "\r\n"; // disconnect message
-                            outputStream.write(msg.getBytes(StandardCharsets.UTF_8));
-                            outputStream.flush();
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Bytes sent: " + String.format("%d.", msg.length()) + "\n" + txtInfo.getText());
-                                }
-                            });
+                            // send disconnect message "Goodbye."
+                            SendMessage("Goodbye.");
 
                             // close socket
                             socket.close();
                             if (socket.isClosed()) {
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Disconnected successfully." + "\n" + txtInfo.getText());
-                                    }
-                                });
-                            } else {
-                                // this never shows
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Disconnection failed." + "\n" + txtInfo.getText());
-                                    }
-                                });
+                                PostInfo("Disconnected successfully.");
+
+                                // stop data receive thread
+                                DataReceiveThread.interrupt();
                             }
                         } catch (IOException e) {
                             e.printStackTrace();
@@ -289,38 +248,21 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 mThreadPool.execute(new Runnable() {
                     @Override
                     public void run() {
+                        // check if it's connected
+                        if (socket == null) {
+                            PostInfo("Please connect first.");
+                            return;
+                        }
+
+                        // check if it's disconnected
+                        if (socket.isClosed()) {
+                            PostInfo("Please check connection.");
+                            return;
+                        }
+
+                        // try to send info in edtTxtMessage
                         try {
-                            // check if it's connected
-                            if (socket == null) {
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Please connect first." + "\n" + txtInfo.getText());
-                                    }
-                                });
-                                return;
-                            }
-                            // check if it's disconnected
-                            if (socket.isClosed()) {
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Please check connection." + "\n" + txtInfo.getText());
-                                    }
-                                });
-                                return;
-                            }
-                            // send info in edtTxtMessage. shall we use a new thread for sending?
-                            outputStream = socket.getOutputStream();
-                            String msg = edtTxtMessage.getText().toString() + "\r\n";
-                            outputStream.write(msg.getBytes(StandardCharsets.UTF_8));
-                            outputStream.flush();
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Bytes sent: " + String.format("%d.", msg.length()) + "\n" + txtInfo.getText());
-                                }
-                            });
+                            SendMessage(edtTxtMessage.getText().toString());
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
@@ -333,132 +275,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         btnPlay.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                mThreadPool.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        // check if it's not connected yet
-                        if (socket == null) {
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Please connect first." + "\n" + txtInfo.getText());
-                                }
-                            });
-
-                            return;
-                        }
-                        // check if it's disconnected
-                        if (socket.isClosed()) {
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Please check connection." + "\n" + txtInfo.getText());
-                                }
-                            });
-
-                            return;
-                        }
-                        // check if the label is empty
-                        String file_label = Objects.requireNonNull(edtTxtName.getText().toString());
-                        if (file_label.isEmpty()) {
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Label is empty." + "\n" + txtInfo.getText());
-                                }
-                            });
-
-                            return;
-                        }
-                        // set up file path
-                        String file_name = file_label + ".pcm";
-                        String file_path = getRecorderFilePath() + File.separator + file_name;
-                        Log.d("btnPlay", "file_path = " + file_path);
-
-                        // check if it's recording
-                        if (mCurrentActionState == ACTION_RECORDING) {
-                            // switch flag to normal state
-                            mCurrentActionState = ACTION_NORMAL;
-                            // stop the recorder
-                            Log.d("btnPlay", "when pressed stop: try to stop recording");
-                            int delivered_frames = mAudioRecordHelper.stopRecord(); // this will return the bytes from audio stream
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Bytes sent: " + String.format("%d.", delivered_frames) + "\n" + txtInfo.getText());
-                                }
-                            });
-
-                            // change button to Play
-                            btnPlay.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    btnPlay.setText("Play");
-                                }
-                            });
-                            Log.d("btnPlay", "when pressed top: ready to return");
-                            return;
-                        }
-                        else {
-                            // switch flag to recording (playing) state
-                            mCurrentActionState = ACTION_RECORDING;
-                            // change button text
-                            btnPlay.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    btnPlay.setText("Stop");
-                                }
-                            });
-                            Log.d("btnPlay", "when pressed play: try to start recording");
-                            // check current volume
-                            int current_volume = CheckSystemVolume();
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Current volume: " + String.valueOf(current_volume) + "." + "\n" + txtInfo.getText());
-                                }
-                            });
-
-                            // start the recorder
-                            try {
-                                // send "Start playing."
-                                outputStream = socket.getOutputStream();
-                                String msg = "Start playing." + "\r\n"; // disconnect message
-                                outputStream.write(msg.getBytes(StandardCharsets.UTF_8));
-                                outputStream.flush();
-                                txtInfo.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        txtInfo.setText("Bytes sent: " + String.format("%d.", msg.length()) + "\n" + txtInfo.getText());
-                                    }
-                                });
-
-                                // start recorder
-                                mAudioRecordHelper = new AudioRecordHelper(file_path, socket);
-                            } catch (IOException ex) {
-                                ex.printStackTrace();
-                            }
-                            // start the player
-                            mAudioPlayThread = new AudioPlayThread();
-                            mAudioPlayThread.start();
-                            try {
-                                mAudioPlayThread.join();
-                                Log.d("btnPlay", "mAudioPlayThread has joined");
-                            } catch (InterruptedException e) {
-                                Log.d("btnPlay", "mAudioPlayThread failed to join");
-                                e.printStackTrace();
-                            }
-                            // upon finishing recording
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Recorded successfully." + "\n" + txtInfo.getText());
-                                }
-                            });
-
-                        }
-                    }
-                });
+                onPlayBtnClick();
             }
         });
     }
@@ -484,152 +301,34 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         return (int) (((float) volumeLevel / maxVolumeLevel) * 100);
     }
 
-    // data receiver thread
+    // data receive thread
     class DataReceiveThread implements Runnable {
         @RequiresApi(api = Build.VERSION_CODES.N)
         @Override
         public void run() {
-            while (true) {
-                try {
+            try {
+                while (socket.isConnected() && !socket.isClosed()) {
                     message = bufferedReader.readLine();
                     if (message != null) {
-                        // display the length of byte stream
-                        txtInfo.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                txtInfo.setText("Received bytes: " + String.format("%d.", message.length()) + "\n" + txtInfo.getText());
-                            }
-                        });
+                        PostInfo("Received bytes: ", message.length());
 
+                        // when short message received
                         if (message.length() < 100) {
-                            // short message
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Received message: " + message + "\n" + txtInfo.getText());
-                                }
-                            });
-                            Log.d("DataReceiveThread", message);
+                            PostInfo("Received message: " + message);
 
-                            // newly added /////////////////////////////////////////////////////////
-                            // TODO: 15/3/22 wrap into a function
                             if (message.equals("Play.")) {
-                                // the lines when Play button is pressed
-                                Log.d("DataReceiveThread", "equals Play.");
-
-                                mThreadPool.execute(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        // check if the label is empty
-                                        String file_label = Objects.requireNonNull(edtTxtName.getText().toString());
-                                        if (file_label.isEmpty()) {
-                                            // txtInfo.setText("Label is empty." + "\n" + txtInfo.getText());
-                                            // return;
-                                            edtTxtName.post(new Runnable() {
-                                                @Override
-                                                public void run() {
-                                                    edtTxtName.setText("calibration");
-                                                }
-                                            });
-
-                                            file_label = Objects.requireNonNull(edtTxtName.getText().toString());
-                                        }
-                                        // set up file path
-                                        String file_name = file_label + ".pcm";
-                                        String file_path = getRecorderFilePath() + File.separator + file_name;
-                                        Log.d("btnPlay", "file_path = " + file_path);
-
-                                        // check if it's recording
-                                        if (mCurrentActionState == ACTION_RECORDING) {
-                                            // switch flag to normal state
-                                            mCurrentActionState = ACTION_NORMAL;
-                                            // stop the recorder
-                                            Log.d("btnPlay", "when pressed stop: try to stop recording");
-                                            int delivered_frames = mAudioRecordHelper.stopRecord(); // this will return the bytes from audio stream
-                                            txtInfo.post(new Runnable() {
-                                                @Override
-                                                public void run() {
-                                                    txtInfo.setText("Bytes sent: " + String.format("%d.", delivered_frames) + "\n" + txtInfo.getText());
-                                                }
-                                            });
-
-                                            // change button to Play
-                                            btnPlay.post(new Runnable() {
-                                                @Override
-                                                public void run() {
-                                                    btnPlay.setText("Play");
-                                                }
-                                            });
-                                            Log.d("btnPlay", "when pressed top: ready to return");
-                                            return;
-                                        }
-                                        else {
-                                            // switch flag to recording (playing) state
-                                            mCurrentActionState = ACTION_RECORDING;
-                                            // change button text
-                                            btnPlay.post(new Runnable() {
-                                                @Override
-                                                public void run() {
-                                                    btnPlay.setText("Stop");
-                                                }
-                                            });
-                                            Log.d("btnPlay", "when pressed play: try to start recording");
-                                            // check current volume
-                                            int current_volume = CheckSystemVolume();
-                                            txtInfo.post(new Runnable() {
-                                                @Override
-                                                public void run() {
-                                                    txtInfo.setText("Current volume: " + String.valueOf(current_volume) + "." + "\n" + txtInfo.getText());
-                                                }
-                                            });
-
-                                            // start the recorder
-                                            try {
-                                                // send "Start playing."
-                                                outputStream = socket.getOutputStream();
-                                                String msg = "Start playing." + "\r\n"; // disconnect message
-                                                outputStream.write(msg.getBytes(StandardCharsets.UTF_8));
-                                                outputStream.flush();
-                                                txtInfo.post(new Runnable() {
-                                                    @Override
-                                                    public void run() {
-                                                        txtInfo.setText("Bytes sent: " + String.format("%d.", msg.length()) + "\n" + txtInfo.getText());
-                                                    }
-                                                });
-
-                                                // start recorder
-                                                mAudioRecordHelper = new AudioRecordHelper(file_path, socket);
-                                            } catch (IOException ex) {
-                                                ex.printStackTrace();
-                                            }
-                                            // start the player
-                                            mAudioPlayThread = new AudioPlayThread();
-                                            mAudioPlayThread.start();
-                                            try {
-                                                mAudioPlayThread.join();
-                                                Log.d("btnPlay", "mAudioPlayThread has joined");
-                                            } catch (InterruptedException e) {
-                                                Log.d("btnPlay", "mAudioPlayThread failed to join");
-                                                e.printStackTrace();
-                                            }
-                                            // upon finishing recording
-                                            txtInfo.post(new Runnable() {
-                                                @Override
-                                                public void run() {
-                                                    txtInfo.setText("Recorded successfully." + "\n" + txtInfo.getText());
-                                                }
-                                            });
-
-                                        }
-                                    }
-                                });
+                                onPlayBtnClick();
                             }
-                        } else {
-                            // long data
+                        }
+                        // when long message received
+                        else {
+                            // parse long message as double  array
                             String[] mSoundStr = message.split(",", 0);
                             double[] mSoundVal = Arrays.stream(mSoundStr).mapToDouble(Double::parseDouble).toArray();
+
+                            // check if the buffer is being written
                             if (mCurrentBufferState == BUFFER_NORMAL) {
-                                mCurrentBufferState = BUFFER_WRITING; // set the flag to writing
+                                mCurrentBufferState = BUFFER_WRITING;
                                 Log.d("DataReceiveThread", "Start writing");
                                 for (int i = 0; i < duration; i++) {
                                     if (i < mSoundVal.length) {
@@ -642,20 +341,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                                 mCurrentBufferState = BUFFER_NORMAL;
                                 Log.d("DataReceiveThread", "Finish writing");
                             }
-                            // finished writing
-                            txtInfo.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    txtInfo.setText("Received data: " + String.valueOf(mSoundVal.length) + "\n" + txtInfo.getText());
-                                }
-                            });
-                            Log.d("DataReceiveThread", String.valueOf(mSoundStr[mSoundStr.length-1]));
                         }
                     }
-
-                } catch (IOException e) {
-                    e.printStackTrace();
                 }
+            } catch (IOException e) {
+                // when interrupted by Thread.interrupt(), BufferedReader will throw a exception:
+                // java.net.SocketException: Socket closed
+                e.printStackTrace();
             }
         }
     }
@@ -696,12 +388,137 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         return path + File.separator + "Recorder";
     }
 
+    public void onPlayBtnClick() {
+        mThreadPool.execute(new Runnable() {
+            @Override
+            public void run() {
+                // check if it's not connected
+                if (socket == null) {
+                    PostInfo("Please connect first.");
+                    return;
+                }
+
+                // check if it's disconnected
+                if (socket.isClosed()) {
+                    PostInfo("Please check connection.");
+                    return;
+                }
+
+                // if the file name is empty, set a name for it
+                String file_label = Objects.requireNonNull(edtTxtName.getText().toString());
+                if (file_label.isEmpty()) {
+                    PostInfo("Empty file name. Named as 'temp' instead.");
+                    edtTxtName.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            String text = "temp";
+                            edtTxtName.setText(text);
+                        }
+                    });
+                    file_label = Objects.requireNonNull(edtTxtName.getText().toString());
+                }
+
+                // set up file path
+                String file_name = file_label + ".pcm";
+                String file_path = getRecorderFilePath() + File.separator + file_name;
+
+                // when Stop is pressed
+                if (mCurrentActionState == ACTION_RECORDING) {
+                    // switch flag to normal state
+                    mCurrentActionState = ACTION_NORMAL;
+                    // change button to Play
+                    btnPlay.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            String play_text = "Play";
+                            btnPlay.setText(play_text);
+                            btnPlay.setBackgroundColor(17170453);
+                        }
+                    });
+
+                    // stop the recorder
+                    // stopRecord() will return the number of recorded frames
+                    int delivered_frames = mAudioRecordHelper.stopRecord();
+                    PostInfo("Bytes sent: ", delivered_frames);
+                }
+                // when Play is pressed
+                else if (mCurrentActionState == ACTION_NORMAL) {
+                    // switch flag to recording (playing) state
+                    mCurrentActionState = ACTION_RECORDING;
+                    // change button text
+                    btnPlay.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            String stop_text = "Stop";
+                            btnPlay.setText(stop_text);
+                            btnPlay.setBackgroundColor(Color.RED);
+                        }
+                    });
+
+                    // check current volume
+                    int current_volume = CheckSystemVolume();
+                    PostInfo("Current volume: ", current_volume);
+
+                    // start the recorder
+                    try {
+                        mAudioRecordHelper = new AudioRecordHelper(file_path, socket);
+
+                        // send "Start playing."
+                        SendMessage("Start playing.");
+                    } catch (IOException ex) {
+                        Log.d("btnPlay", "mAudioRecordHelper failed");
+                        ex.printStackTrace();
+                    }
+
+                    // start the player
+                    try {
+                        mAudioPlayThread = new AudioPlayThread();
+                        mAudioPlayThread.start();
+                        mAudioPlayThread.join();
+                        Log.d("btnPlay", "mAudioPlayThread joined");
+                    } catch (InterruptedException e) {
+                        Log.d("btnPlay", "mAudioPlayThread failed");
+                        e.printStackTrace();
+                    }
+
+                    // upon finishing recording
+                    PostInfo("Recorded successfully.");
+                }
+            }
+        });
+    }
+
+    public void PostInfo(String msg, int n) {
+        @SuppressLint("DefaultLocale")
+        String text = msg + String.format("%d.", n);
+        PostInfo(text);
+    }
+
+    public void PostInfo(String msg) {
+        txtInfo.post(new Runnable() {
+            @Override
+            public void run() {
+                String text = msg + '\n' + txtInfo.getText();
+                txtInfo.setText(text);
+            }
+        });
+    }
+
+    public void SendMessage(String msg) throws IOException {
+        outputStream = socket.getOutputStream();
+        String text = msg + "\r\n";
+        outputStream.write(text.getBytes(StandardCharsets.UTF_8));
+        outputStream.flush();
+
+        PostInfo("Bytes sent: ", text.length());
+    }
+
     // fetch the stored data in onResume(), which will be called when the app opens again
     @Override
     protected void onResume() {
         super.onResume();
 
-        // fetch the stored data from the SharedPreference
+        // fetch the stored data from SharedPreference
         SharedPreferences sh = getSharedPreferences("MySharedPref", MODE_PRIVATE);
 
         String host = sh.getString("host", "155.69.142.178"); // default server ip
@@ -725,7 +542,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         edtTxtPort.setText(String.valueOf(port));
     }
 
-    // store the data in onPause(), which will be called when the user closes the application
+    // store data in onPause(), which will be called when the user closes the application
     @Override
     protected void onPause() {
         super.onPause();

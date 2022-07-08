@@ -20,8 +20,8 @@ import java.util.concurrent.Executors;
 /**
  * Created by _SOLID
  * Date:    2017/5/18
- * Time:    13:35
- * Desc:    demo
+ * Modified by Hongtuo
+ * Date:    2022/7/8
  */
 
 public class AudioRecordHelper {
@@ -53,7 +53,7 @@ public class AudioRecordHelper {
         mFileOutputStream = new FileOutputStream(mAudioFile);
         int audioSource = MediaRecorder.AudioSource.MIC;
         int sampleRate = 44100;
-        //单声道录制
+        // mono recording
         int channelConfig = AudioFormat.CHANNEL_IN_MONO;
         int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
         int minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
