@@ -36,7 +36,7 @@ Credit to the developers of LocProber: Qun, Chaojie, Dongfang, Wenjie, et al.
 ### More details on Android client
 
 1. When **Play/Stop** is pressed, a short message "Start playing." will be sent to the server automatically to let the server reset the buffers.
-2. The Android client will fetch a audio clip of 4000 samples at a time and send in 1 socket. The MATLAB server will invoke the callback function **readData** upon receiving each socket, i.e, an audio clip of 4000 samples.
+2. The Android client will fetch an audio clip of 4000 samples at a time and send in 1 socket. The MATLAB server will invoke the callback function **readData** upon receiving each socket (4000 samples).
 3. The default chirp is linear chirp from 15k to 20kHz in 500 samples, and then mute for 3500 samples to record the echoes. See **Customize the chirp remotely** below if you want to use your own chirp.
 
 
