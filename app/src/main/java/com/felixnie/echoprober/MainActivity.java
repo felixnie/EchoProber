@@ -46,15 +46,15 @@ import java.util.concurrent.Executors;
 /**
  * Modified by Hongtuo
  * Name:    EchoProber Client
- * Date:    2022/7/8
+ * Date:    2022/7/10
  * Note:    Stoppable recording     - Done.
  *          Main thread block-free  - Done.
  *          Accept remote control   - Done.
  *          Auto save configuration - Done.
  *          Play/Stop threading     - Done.
  *          File transmission       - Pending.
- *          Stable transmission     - Working.
- *          Real-time buffer update - Pending.
+ *          Stabler transmission    - Pending.
+ *          Buffer update           - Done.
  */
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
@@ -197,39 +197,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         btnDisconnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                mThreadPool.execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        // check if it's already connected
-                        if (socket == null) {
-                            PostInfo("Please connect first.");
-                            return;
-                        }
-
-                        // check if it's already disconnected
-                        if (socket.isClosed()) {
-                            PostInfo("Already disconnected.");
-                            return;
-                        }
-
-                        // try to close socket
-                        try {
-                            // send disconnect message "Goodbye."
-                            SendMessage("Goodbye.");
-
-                            // close socket
-                            socket.close();
-                            if (socket.isClosed()) {
-                                PostInfo("Disconnected successfully.");
-
-                                // stop data receive thread
-                                DataReceiveThread.interrupt();
-                            }
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                });
+                if (mCurrentActionState == ACTION_RECORDING) {
+                    onPlayBtnClick();
+                }
+                onDisconnectBtnClick();
             }
         });
 
@@ -319,6 +290,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                             if (message.equals("Play.")) {
                                 onPlayBtnClick();
                             }
+
+                            if (message.equals("Disconnect.")) {
+                                onDisconnectBtnClick();
+                            }
                         }
                         // when long message received
                         else {
@@ -386,6 +361,42 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             path = getCacheDir().getAbsolutePath();
         }
         return path + File.separator + "Recorder";
+    }
+
+    public void onDisconnectBtnClick() {
+        mThreadPool.execute(new Runnable() {
+            @Override
+            public void run() {
+                // check if it's already connected
+                if (socket == null) {
+                    PostInfo("Please connect first.");
+                    return;
+                }
+
+                // check if it's already disconnected
+                if (socket.isClosed()) {
+                    PostInfo("Already disconnected.");
+                    return;
+                }
+
+                // try to close socket
+                try {
+                    // send disconnect message "Goodbye."
+                    SendMessage("Goodbye.");
+
+                    // close socket
+                    socket.close();
+                    if (socket.isClosed()) {
+                        PostInfo("Disconnected successfully.");
+
+                        // stop data receive thread
+                        DataReceiveThread.interrupt();
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
     }
 
     public void onPlayBtnClick() {
