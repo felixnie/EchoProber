@@ -8,7 +8,9 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.media.AudioFormat;
 import android.media.AudioManager;
+import android.media.AudioRecord;
 import android.media.AudioTrack;
+import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -18,6 +20,8 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -39,6 +43,7 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -91,6 +96,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Button btnConnect, btnDisconnect, btnPlay, btnSend, btnClear;
     private EditText edtTxtHost, edtTxtPort, edtTxtMessage, edtTxtName;
     private TextView txtInfo;
+    private RadioGroup radioGroup;
+    private RadioButton radioButton;
 
     // flags
     private static final int ACTION_NORMAL = 0;
@@ -472,7 +479,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
                     // start the recorder
                     try {
-                        mAudioRecordHelper = new AudioRecordHelper(file_path, socket);
+                        // get selected radio button
+                        int radioID = radioGroup.getCheckedRadioButtonId();
+                        radioButton = findViewById(radioID);
+                        String mic_option = radioButton.getText().toString();
+                        PostInfo("Current audio source: " + mic_option + '.');
+
+                        mAudioRecordHelper = new AudioRecordHelper(file_path, socket, mic_option);
 
                         // send "Start playing."
                         SendMessage("Start playing.");
@@ -532,7 +545,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         // fetch the stored data from SharedPreference
         SharedPreferences sh = getSharedPreferences("MySharedPref", MODE_PRIVATE);
 
-        String host = sh.getString("host", "155.69.142.178"); // default server ip
+        String host = sh.getString("host", "155.69.142.8"); // default server ip
         int port = sh.getInt("port", 8170); // default server port
 
         // check model, change default port

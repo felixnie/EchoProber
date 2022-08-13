@@ -39,7 +39,7 @@ public class AudioRecordHelper {
     OutputStream outputStream;
 
     @SuppressLint("MissingPermission")
-    public AudioRecordHelper(String file_path, Socket socket) throws IOException {
+    public AudioRecordHelper(String file_path, Socket socket, String mic_option) throws IOException {
 
         outputStream = socket.getOutputStream();
 
@@ -51,7 +51,26 @@ public class AudioRecordHelper {
         }
         mAudioFile.createNewFile();
         mFileOutputStream = new FileOutputStream(mAudioFile);
-        int audioSource = MediaRecorder.AudioSource.MIC;
+
+        int audioSource;
+        switch (mic_option) {
+            case "Default":
+                audioSource = MediaRecorder.AudioSource.DEFAULT;
+                break;
+            case "Mic":
+                audioSource = MediaRecorder.AudioSource.MIC;
+                break;
+            case "Unprocessed":
+                audioSource = MediaRecorder.AudioSource.UNPROCESSED;
+                break;
+            case "Camcorder":
+                audioSource = MediaRecorder.AudioSource.CAMCORDER;
+                break;
+            default:
+                audioSource = MediaRecorder.AudioSource.UNPROCESSED;
+                break;
+        };
+
         int sampleRate = 44100;
         // mono recording
         int channelConfig = AudioFormat.CHANNEL_IN_MONO;
