@@ -87,7 +87,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     // for sound design
     int sample_rate = 44100;
-    int duration = 4000;
+    int duration = 4800; // changed from 4000 to 4800 to comply with iOS version
     int sig_len = 500;
     double[] mSound = new double[duration];
     short[] mBuffer = new short[duration];
@@ -138,6 +138,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         edtTxtName = findViewById(R.id.edtTxtName);
         txtInfo = findViewById(R.id.txtInfo);
         txtInfo.setMovementMethod(new ScrollingMovementMethod());
+
+        radioGroup = findViewById(R.id.radioGroup);
 
         // check permission upon start
         int PERMISSION_ALL = 1;

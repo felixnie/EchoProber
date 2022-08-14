@@ -26,7 +26,7 @@ import java.util.concurrent.Executors;
 
 public class AudioRecordHelper {
 
-    private final static int BUFFER_SIZE = 8000;
+    private final static int BUFFER_SIZE = 4800 * 2;
     private volatile boolean mIsRecording = false;
     private byte[] mBuffer = new byte[BUFFER_SIZE];
     private File mAudioFile;
