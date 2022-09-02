@@ -26,22 +26,32 @@ import java.util.concurrent.Executors;
 
 public class AudioRecordHelper {
 
-    private final static int BUFFER_SIZE = 4800 * 2;
-    private volatile boolean mIsRecording = false;
-    private byte[] mBuffer = new byte[BUFFER_SIZE];
+    private final static int BUFFER_SIZE_16BIT_MONO = 4800 * 2;
+    private final static int BUFFER_SIZE_16BIT_STEREO = 4800 * 4;
+    private final static int sampleRate = 44100;
+    private volatile boolean isRecording = false;
+    private volatile boolean isMono = false; // the default radio button is Stereo recorder
+    private byte[] mBufferMono = new byte[BUFFER_SIZE_16BIT_MONO];
+    private byte[] mBufferStereo = new byte[BUFFER_SIZE_16BIT_STEREO];
     private File mAudioFile;
     private FileOutputStream mFileOutputStream;
     private AudioRecord mAudioRecord;
     private final ExecutorService mExecutorService;
     private final Handler mMainHandler;
     private int total_bytes;
+    private int bufferSize;
+    private boolean isOffline = true;
 
     OutputStream outputStream;
 
     @SuppressLint("MissingPermission")
-    public AudioRecordHelper(String file_path, Socket socket, String mic_option) throws IOException {
+    public AudioRecordHelper(String file_path, Socket socket, String recorder_source, String recorder_channel) throws IOException {
 
-        outputStream = socket.getOutputStream();
+        // manage file and socket stream
+        isOffline = socket == null || socket.isClosed();
+        if (!isOffline) {
+            outputStream = socket.getOutputStream();
+        }
 
         mExecutorService = Executors.newSingleThreadExecutor();
         mMainHandler = new Handler(Looper.getMainLooper());
@@ -52,8 +62,10 @@ public class AudioRecordHelper {
         mAudioFile.createNewFile();
         mFileOutputStream = new FileOutputStream(mAudioFile);
 
-        int audioSource;
-        switch (mic_option) {
+        // configure source and channel
+        int audioSource, channelConfig;
+
+        switch (recorder_source) {
             case "Default":
                 audioSource = MediaRecorder.AudioSource.DEFAULT;
                 break;
@@ -69,18 +81,32 @@ public class AudioRecordHelper {
             default:
                 audioSource = MediaRecorder.AudioSource.UNPROCESSED;
                 break;
-        };
+        }
 
-        int sampleRate = 44100;
-        // mono recording
-        int channelConfig = AudioFormat.CHANNEL_IN_MONO;
+        switch (recorder_channel) {
+            case "Mono recorder":
+                channelConfig = AudioFormat.CHANNEL_IN_MONO;
+                break;
+            case "Stereo recorder":
+                channelConfig = AudioFormat.CHANNEL_IN_STEREO;
+                break;
+            default:
+                channelConfig = AudioFormat.CHANNEL_IN_STEREO;
+                break;
+        }
+
+        // set up mAudioRecord
         int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
         int minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
-        mAudioRecord = new AudioRecord(audioSource
-                , sampleRate
-                , channelConfig
-                , audioFormat
-                , Math.max(minBufferSize, BUFFER_SIZE));
+        isMono = (channelConfig == AudioFormat.CHANNEL_IN_MONO);
+        bufferSize = isMono ? BUFFER_SIZE_16BIT_MONO : BUFFER_SIZE_16BIT_STEREO;
+        bufferSize = Math.max(minBufferSize, bufferSize);
+        mAudioRecord = new AudioRecord(audioSource,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                bufferSize);
+
         mExecutorService.submit(new Runnable() {
             @Override
             public void run() {
@@ -93,21 +119,25 @@ public class AudioRecordHelper {
 
         mAudioRecord.startRecording();
 
-        Long tsLong = System.currentTimeMillis();
-        String ts = tsLong.toString();
-        Log.d("startRecord time", ts);
+        // DEBUG
+        // Long tsLong = System.currentTimeMillis();
+        // String ts = tsLong.toString();
+        // Log.d("startRecord", "time", ts);
 
         try {
+            byte[] mBuffer = isMono ? mBufferMono : mBufferStereo; // is this just a pointer?
             total_bytes = 0;
-            while (mIsRecording) {
-                int read = mAudioRecord.read(mBuffer, 0, BUFFER_SIZE);
+            while (isRecording) {
+                int read = mAudioRecord.read(mBuffer, 0, bufferSize);
                 if (read > 0) {
                     Log.d("startRecord", "buffer size:" + String.valueOf(read));
                     total_bytes += read;
                     mFileOutputStream.write(mBuffer, 0, read);
-                    outputStream.write(mBuffer, 0, read);
-                    outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
-                    outputStream.flush();
+                    if (!isOffline) { // enable socket stream only when at online mode
+                        outputStream.write(mBuffer, 0, read);
+                        outputStream.write("\r\n".getBytes(StandardCharsets.UTF_8));
+                        outputStream.flush();
+                    }
                 } else {
                     return false;
                 }
@@ -126,7 +156,7 @@ public class AudioRecordHelper {
     public int stopRecord() {
         try {
             Log.d("stopRecord", "stopping");
-            mIsRecording = false;
+            isRecording = false;
             if (mAudioRecord != null) {
                 mAudioRecord.stop();
                 mAudioRecord.release();
@@ -142,7 +172,7 @@ public class AudioRecordHelper {
     }
 
     public void start() {
-        mIsRecording = true;
+        isRecording = true;
         startRecord();
     }
 }

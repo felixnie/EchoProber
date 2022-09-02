@@ -38,7 +38,6 @@
         app:layout_constraintTop_toBottomOf="@+id/edtTxtHost" />
 
 
-
     <Button
         android:id="@+id/btnSend"
         android:layout_width="wrap_content"
@@ -96,12 +95,11 @@
         android:layout_marginEnd="32dp"
 
         android:layout_marginBottom="24dp"
-        android:text="Event log initiated."
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/radioGroup"
+        app:layout_constraintTop_toBottomOf="@+id/radioGroup3"
         app:layout_constraintVertical_bias="0.0" />
 
     <Button
@@ -184,7 +182,7 @@
     <RadioGroup
         android:id="@+id/radioGroup"
         android:layout_width="0dp"
-        android:layout_height="50dp"
+        android:layout_height="25dp"
         android:layout_marginTop="16dp"
         android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="@+id/btnPlay"
@@ -196,7 +194,8 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:checked="true"
+            android:ellipsize="end"
+            android:singleLine="true"
             android:text="Default"
             android:textAllCaps="false"
             android:textAppearance="@style/TextAppearance.AppCompat.Small" />
@@ -206,6 +205,8 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:ellipsize="end"
+            android:singleLine="true"
             android:text="Mic"
             android:textAllCaps="false"
             android:textAppearance="@style/TextAppearance.AppCompat.Small" />
@@ -216,6 +217,8 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:checked="true"
+            android:ellipsize="end"
+            android:singleLine="true"
             android:text="Unprocessed"
             android:textAllCaps="false"
             android:textAppearance="@style/TextAppearance.AppCompat.Small" />
@@ -225,64 +228,81 @@
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:ellipsize="end"
+            android:singleLine="true"
             android:text="Camcorder"
             android:textAllCaps="false"
             android:textAppearance="@style/TextAppearance.AppCompat.Small" />
     </RadioGroup>
 
-<!--    <TableLayout-->
-<!--        android:id="@+id/tableLayout"-->
-<!--        android:layout_width="0dp"-->
-<!--        android:layout_height="80dp"-->
-<!--        android:layout_marginStart="32dp"-->
-<!--        android:layout_marginTop="16dp"-->
-<!--        android:layout_marginEnd="32dp"-->
-<!--        app:layout_constraintEnd_toEndOf="parent"-->
-<!--        app:layout_constraintStart_toStartOf="parent"-->
-<!--        app:layout_constraintTop_toBottomOf="@+id/edtTxtName">-->
+    <RadioGroup
+        android:id="@+id/radioGroup2"
+        android:layout_width="0dp"
+        android:layout_height="25dp"
+        android:layout_marginTop="16dp"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="@+id/btnPlay"
+        app:layout_constraintStart_toStartOf="@+id/edtTxtName"
+        app:layout_constraintTop_toBottomOf="@+id/radioGroup">
 
-<!--        <TableRow>-->
+        <RadioButton
+            android:id="@+id/radioButton5"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:checked="true"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:text="Mono recorder"
+            android:textAllCaps="false"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small" />
 
-<!--            <RadioButton-->
-<!--                android:id="@+id/radioButton1"-->
-<!--                android:layout_width="0dp"-->
-<!--                android:layout_height="40dp"-->
-<!--                android:layout_weight="1"-->
-<!--                android:checked="true"-->
-<!--                android:text="Default"-->
-<!--                android:textAllCaps="false"-->
-<!--                android:textAppearance="@style/TextAppearance.AppCompat.Small" />-->
+        <RadioButton
+            android:id="@+id/radioButton6"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:text="Stereo recorder"
+            android:textAllCaps="false"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small" />
+    </RadioGroup>
 
-<!--            <RadioButton-->
-<!--                android:id="@+id/radioButton2"-->
-<!--                android:layout_width="0dp"-->
-<!--                android:layout_height="40dp"-->
-<!--                android:layout_weight="1"-->
-<!--                android:text="Mic"-->
-<!--                android:textAllCaps="false"-->
-<!--                android:textAppearance="@style/TextAppearance.AppCompat.Small" />-->
-<!--        </TableRow>-->
+    <RadioGroup
+        android:id="@+id/radioGroup3"
+        android:layout_width="0dp"
+        android:layout_height="25dp"
+        android:layout_marginTop="16dp"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="@+id/btnPlay"
+        app:layout_constraintStart_toStartOf="@+id/edtTxtName"
+        app:layout_constraintTop_toBottomOf="@+id/radioGroup2">
 
-<!--        <TableRow>-->
+        <RadioButton
+            android:id="@+id/radioButton7"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:checked="true"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:text="Mono player"
+            android:textAllCaps="false"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small" />
 
-<!--            <RadioButton-->
-<!--                android:id="@+id/radioButton3"-->
-<!--                android:layout_width="0dp"-->
-<!--                android:layout_height="40dp"-->
-<!--                android:layout_weight="1"-->
-<!--                android:text="Unprocessed"-->
-<!--                android:textAllCaps="false"-->
-<!--                android:textAppearance="@style/TextAppearance.AppCompat.Small" />-->
+        <RadioButton
+            android:id="@+id/radioButton8"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:text="Stereo player"
+            android:textAllCaps="false"
+            android:textAppearance="@style/TextAppearance.AppCompat.Small" />
+    </RadioGroup>
 
-<!--            <RadioButton-->
-<!--                android:id="@+id/radioButton4"-->
-<!--                android:layout_width="0dp"-->
-<!--                android:layout_height="40dp"-->
-<!--                android:layout_weight="1"-->
-<!--                android:text="CamCorder"-->
-<!--                android:textAllCaps="false"-->
-<!--                android:textAppearance="@style/TextAppearance.AppCompat.Small" />-->
-<!--        </TableRow>-->
-<!--    </TableLayout>-->
 
 </androidx.constraintlayout.widget.ConstraintLayout>
+

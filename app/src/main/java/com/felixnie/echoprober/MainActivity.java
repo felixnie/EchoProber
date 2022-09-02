@@ -42,16 +42,21 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
  * Modified by Hongtuo
  * Name:    EchoProber Client
- * Date:    2022/7/10
+ * Date:    2022/8/30
  * Note:    Stoppable recording     - Done.
  *          Main thread block-free  - Done.
  *          Accept remote control   - Done.
@@ -86,26 +91,34 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private AudioPlayThread mAudioPlayThread;
 
     // for sound design
+    int f0 = 15000;
+    int f1 = 22000;
     int sample_rate = 44100;
-    int duration = 4800; // changed from 4000 to 4800 to comply with iOS version
-    int sig_len = 500;
-    double[] mSound = new double[duration];
-    short[] mBuffer = new short[duration];
+    int chirp_length = 100;
+    int buffer_length = 4800; // changed from 4000 to 4800 to comply with iOS version
+    double[] mSound = new double[buffer_length];
+    short[] mBufferMono = new short[buffer_length];
+    short[] mBufferStereo = new short[buffer_length * 2];
+
+    // for auto-stop timer
+    private Timer timer;
+    boolean isTiming = false;
 
     // create component handler
     private Button btnConnect, btnDisconnect, btnPlay, btnSend, btnClear;
     private EditText edtTxtHost, edtTxtPort, edtTxtMessage, edtTxtName;
     private TextView txtInfo;
-    private RadioGroup radioGroup;
+    private RadioGroup radioGroup, radioGroup2, radioGroup3;
     private RadioButton radioButton;
+    private int radioID;
 
     // flags
-    private static final int ACTION_NORMAL = 0;
-    private static final int ACTION_RECORDING = 1;
-    private int mCurrentActionState = ACTION_NORMAL;
-    private static final int BUFFER_NORMAL = 0;
+    private static final int ACTION_STOPPED = 0;
+    private static final int ACTION_PLAYING = 1;
+    private int mCurrentActionState = ACTION_STOPPED;
+    private static final int BUFFER_READY = 0;
     private static final int BUFFER_WRITING = 1;
-    private int mCurrentBufferState = BUFFER_NORMAL;
+    private int mCurrentBufferState = BUFFER_READY;
 
     // upon starting
     @Override
@@ -113,18 +126,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        this.setTitle("Echo Prober 9.02");
+
         // initialize sound buffer
-        float f0 = 15000;
-        float f1 = 20000;
-        double w0 = f0 / 44100 * 2 * Math.PI;
-        double w1 = f1 / 44100 * 2 * Math.PI;
-        for (int i = 0; i < sig_len; i++) {
-            double K = sig_len * w0 / Math.log(w1 / w0);
-            double L = sig_len / Math.log(w1 / w0);
-            double phase = K * (Math.exp(i / L) - 1.0);
-            mSound[i] = Math.sin(phase);
-            mBuffer[i] = (short) (mSound[i] * Short.MAX_VALUE);
-        }
+        // default settings:
+        //     mono buffer: linear chirp without windowing, will play with all speakers
+        //     stereo buffer: linear chirp without windowing, only channel R is enabled
+        calculateChirp(f0, f1, sample_rate, chirp_length, buffer_length);
 
         // components
         btnConnect = findViewById(R.id.btnConnect);
@@ -140,6 +148,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         txtInfo.setMovementMethod(new ScrollingMovementMethod());
 
         radioGroup = findViewById(R.id.radioGroup);
+        radioGroup2 = findViewById(R.id.radioGroup2);
+        radioGroup3 = findViewById(R.id.radioGroup3);
 
         // check permission upon start
         int PERMISSION_ALL = 1;
@@ -153,6 +163,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
         // initialize thread pool
         mThreadPool = Executors.newCachedThreadPool();
+
+        // welcome message
+        PostInfo("Hello, echo boys.");
+        PostInfo("PCM will be saved to " + getFilePath());
 
         // Connect button
         btnConnect.setOnClickListener(new View.OnClickListener() {
@@ -188,13 +202,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                                 DataReceiveThread.start();
                             }
                         } catch (IOException e) {
-                            // note: 3 popular methods for error printing:
-                            // e.printStackTrace(); // print error trace
-                            // System.out.println(e.getMessage()); // print error message
-                            System.out.println(e.toString()); // print error title and message
-
+                            // print error title and message
+                            System.out.println(e);
                             // usually it's due to existing tcp connection
-                            // warn the user no matter what the real reason is
                             PostInfo("Connection failed: connection refused.");
                         }
                     }
@@ -206,7 +216,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         btnDisconnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                if (mCurrentActionState == ACTION_RECORDING) {
+                if (mCurrentActionState == ACTION_PLAYING) {
                     onPlayBtnClick();
                 }
                 onDisconnectBtnClick();
@@ -289,42 +299,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             try {
                 while (socket.isConnected() && !socket.isClosed()) {
                     message = bufferedReader.readLine();
-                    if (message != null) {
-                        PostInfo("Received bytes: ", message.length());
-
-                        // when short message received
+                    if (message != null) { // when short message received
                         if (message.length() < 100) {
                             PostInfo("Received message: " + message);
-
                             if (message.equals("Play.")) {
                                 onPlayBtnClick();
                             }
-
                             if (message.equals("Disconnect.")) {
                                 onDisconnectBtnClick();
                             }
                         }
-                        // when long message received
-                        else {
-                            // parse long message as double  array
-                            String[] mSoundStr = message.split(",", 0);
-                            double[] mSoundVal = Arrays.stream(mSoundStr).mapToDouble(Double::parseDouble).toArray();
-
-                            // check if the buffer is being written
-                            if (mCurrentBufferState == BUFFER_NORMAL) {
-                                mCurrentBufferState = BUFFER_WRITING;
-                                Log.d("DataReceiveThread", "Start writing");
-                                for (int i = 0; i < duration; i++) {
-                                    if (i < mSoundVal.length) {
-                                        mSound[i] = mSoundVal[i]; // should be -1 ~ 1
-                                    } else {
-                                        mSound[i] = 0.0;
-                                    }
-                                    mBuffer[i] = (short) (mSound[i] * Short.MAX_VALUE);
-                                }
-                                mCurrentBufferState = BUFFER_NORMAL;
-                                Log.d("DataReceiveThread", "Finish writing");
-                            }
+                        else { // when long message received
+                            updateChirp();
                         }
                     }
                 }
@@ -339,37 +325,76 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     // audio player thread
     public class AudioPlayThread extends Thread {
         public void run() {
-            Log.d("AudioPlayThread", "Entering AudioPlayThread");
+            Log.d("AudioPlayThread", "entered AudioPlayThread");
 
-            int mBufferSize = AudioTrack.getMinBufferSize(sample_rate,
-                    AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_8BIT);
-            AudioTrack mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sample_rate,
-                    AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
-                    mBufferSize, AudioTrack.MODE_STREAM);
+            // check current volume
+            int current_volume = CheckSystemVolume();
+            PostInfo("Current player volume: ", current_volume);
+
+            // get selected radio channel
+            radioID = radioGroup3.getCheckedRadioButtonId();
+            radioButton = findViewById(radioID);
+            String player_channel = radioButton.getText().toString();
+            PostInfo("Current player channel: " + player_channel + '.');
+
+            int channelConfig;
+            switch (player_channel){
+                case "Mono player":
+                    channelConfig = AudioFormat.CHANNEL_OUT_MONO;
+                    break;
+                case "Stereo player":
+                    channelConfig = AudioFormat.CHANNEL_OUT_STEREO;
+                    break;
+                default:
+                    channelConfig = AudioFormat.CHANNEL_OUT_STEREO;
+                    break;
+            }
+            int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
+
+            // set buffer size
+            int mBufferSize = AudioTrack.getMinBufferSize(sample_rate, channelConfig, audioFormat); // used to be 8BIT. typo maybe.
+            AudioTrack mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
+                    sample_rate,
+                    channelConfig,
+                    audioFormat,
+                    mBufferSize,
+                    AudioTrack.MODE_STREAM,
+                    AudioTrack.DUAL_MONO_MODE_LR); // to show that L R channels are different. this will not affect mono mode?
 
             // feeding buffer
-            while (mCurrentActionState == ACTION_RECORDING) {
+            while (mCurrentActionState == ACTION_PLAYING) {
                 while (mCurrentBufferState == BUFFER_WRITING) {
                     // wait
-                    Log.d("AudioPlayThread", "Waiting for BUFFER_WRITING");
+                    Log.d("AudioPlayThread", "waiting for BUFFER_WRITING");
                 }
-                // mAudioTrack.setStereoVolume(AudioTrack.getMaxVolume(), AudioTrack.getMaxVolume());
+                // mAudioTrack.setStereoVolume(AudioTrack.getMaxVolume(), AudioTrack.getMaxVolume()); // do we need to use this?
                 mAudioTrack.play();
-                mAudioTrack.write(mBuffer, 0, mBuffer.length);
+                if (channelConfig == AudioFormat.CHANNEL_OUT_MONO) {
+                    mAudioTrack.write(mBufferMono, 0, mBufferMono.length);
+                } else {
+                    mAudioTrack.write(mBufferStereo, 0, mBufferStereo.length);
+                }
+
             }
             mAudioTrack.stop();
             mAudioTrack.release();
         }
     }
 
-    public String getRecorderFilePath() {
+    public String getFilePath() {
         String path;
+        String publicPath;
         if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)) {
-            path = getExternalCacheDir().getAbsolutePath();
+            path = new File(getExternalCacheDir().getAbsolutePath()).toString();
+            publicPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).toString();
+
         } else {
-            path = getCacheDir().getAbsolutePath();
+            path = new File(getCacheDir().getAbsolutePath()).toString();
+            publicPath = path;
+            // if no external storage mounted
         }
-        return path + File.separator + "Recorder";
+
+        return publicPath;
     }
 
     public void onDisconnectBtnClick() {
@@ -412,20 +437,40 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         mThreadPool.execute(new Runnable() {
             @Override
             public void run() {
-                // check if it's not connected
-                if (socket == null) {
-                    PostInfo("Please connect first.");
-                    return;
-                }
 
-                // check if it's disconnected
-                if (socket.isClosed()) {
-                    PostInfo("Please check connection.");
-                    return;
+                String file_label = Objects.requireNonNull(edtTxtName.getText().toString());
+
+                // offline mode detection
+                boolean isOffline = socket == null || socket.isClosed(); // if it's uninitiated or disconnected
+                boolean isTrainTest = file_label.startsWith("train") || file_label.startsWith("test"); // if the file name has prefix
+                boolean isPlaying = mCurrentActionState == ACTION_PLAYING; // if it's playing (timing)
+                // training data recording time: 120s; test data recording time: 12s
+                int data_recording_time = file_label.startsWith("train") ? 120000 : 12000;
+
+                // offline mode actions
+                if (isOffline && isTrainTest && !isPlaying) { // offline mode, with prefix, when stopped -> will stop as scheduled
+                    PostInfo("Offline mode, will auto-stop as scheduled.");
+                    // if file name start with train/test, it'll auto-stop in 120/12s, e.g., "train01", "train_1"
+                    isTiming = true;
+                    timer = new Timer();
+                    timer.schedule(new TimerTask() {
+                        @Override
+                        public void run() {
+                            PostInfo("Stopped as scheduled.");
+                            onPlayBtnClick(); // call myself
+                        }
+                    }, data_recording_time);
+                } else if (isOffline && isTrainTest && isPlaying) { // offline mode, with prefix, when playing (timing) -> cancel timer
+                    PostInfo("Stopped by force.");
+                    timer.cancel();
+                    timer.purge();
+                } else if (isOffline && !isTrainTest && !isPlaying) { // offline mode, when stopped -> pass to play action
+                    PostInfo("Offline mode, can stop manually.");
+                } else if (isOffline && !isTrainTest && isPlaying) { // offline mode, when playing -> pass to stop action
+                    PostInfo("Stopped manually.");
                 }
 
                 // if the file name is empty, set a name for it
-                String file_label = Objects.requireNonNull(edtTxtName.getText().toString());
                 if (file_label.isEmpty()) {
                     PostInfo("Empty file name. Named as 'temp' instead.");
                     edtTxtName.post(new Runnable() {
@@ -440,12 +485,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
                 // set up file path
                 String file_name = file_label + ".pcm";
-                String file_path = getRecorderFilePath() + File.separator + file_name;
+                String file_path = getFilePath() + File.separator + file_name;
 
-                // when Stop is pressed
-                if (mCurrentActionState == ACTION_RECORDING) {
+
+                if (isPlaying) { // when Stop is pressed
                     // switch flag to normal state
-                    mCurrentActionState = ACTION_NORMAL;
+                    mCurrentActionState = ACTION_STOPPED;
                     // change button to Play
                     btnPlay.post(new Runnable() {
                         @Override
@@ -460,11 +505,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     // stopRecord() will return the number of recorded frames
                     int delivered_frames = mAudioRecordHelper.stopRecord();
                     PostInfo("Bytes sent: ", delivered_frames);
-                }
-                // when Play is pressed
-                else if (mCurrentActionState == ACTION_NORMAL) {
-                    // switch flag to recording (playing) state
-                    mCurrentActionState = ACTION_RECORDING;
+                } else { // when Play is pressed
+                    // switch flag to playing (recording) state
+                    mCurrentActionState = ACTION_PLAYING;
                     // change button text
                     btnPlay.post(new Runnable() {
                         @Override
@@ -475,24 +518,28 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         }
                     });
 
-                    // check current volume
-                    int current_volume = CheckSystemVolume();
-                    PostInfo("Current volume: ", current_volume);
-
                     // start the recorder
                     try {
                         // get selected radio button
-                        int radioID = radioGroup.getCheckedRadioButtonId();
+                        radioID = radioGroup.getCheckedRadioButtonId();
                         radioButton = findViewById(radioID);
-                        String mic_option = radioButton.getText().toString();
-                        PostInfo("Current audio source: " + mic_option + '.');
+                        String recorder_source = radioButton.getText().toString();
+                        PostInfo("Current recorder source: " + recorder_source + '.');
 
-                        mAudioRecordHelper = new AudioRecordHelper(file_path, socket, mic_option);
+                        // get selected radio channel
+                        radioID = radioGroup2.getCheckedRadioButtonId();
+                        radioButton = findViewById(radioID);
+                        String recorder_channel = radioButton.getText().toString();
+                        PostInfo("Current recorder channel: " + recorder_channel + '.');
 
-                        // send "Start playing."
-                        SendMessage("Start playing.");
+                        mAudioRecordHelper = new AudioRecordHelper(file_path, socket, recorder_source, recorder_channel);
+
+                        // send "Start playing." only when it's online mode
+                        if (!isOffline) {
+                            SendMessage("Start playing.");
+                        }
                     } catch (IOException ex) {
-                        Log.d("btnPlay", "mAudioRecordHelper failed");
+                        Log.d("onPlayBtnClick", "mAudioRecordHelper failed");
                         ex.printStackTrace();
                     }
 
@@ -501,17 +548,80 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                         mAudioPlayThread = new AudioPlayThread();
                         mAudioPlayThread.start();
                         mAudioPlayThread.join();
-                        Log.d("btnPlay", "mAudioPlayThread joined");
                     } catch (InterruptedException e) {
-                        Log.d("btnPlay", "mAudioPlayThread failed");
                         e.printStackTrace();
                     }
 
                     // upon finishing recording
                     PostInfo("Recorded successfully.");
+                    isTiming = false;
                 }
             }
         });
+    }
+
+    public void calculateChirp(double f0, double f1, double fs, int chirp_length, int buffer_length) {
+        // update mBufferMono and mBufferStereo
+        for (int i = 0; i < buffer_length; i++) {
+            if (i < chirp_length) {
+                double t1 = chirp_length / fs;
+                double beta = (f1-f0) / t1;
+                double t = i / fs;
+                double value = Math.cos(2.0 * Math.PI * (beta / 2.0 * t * t + f0 * t));
+                double hamming = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / chirp_length);
+                short val = (short) (value * hamming * Short.MAX_VALUE); // windowed chirp
+                mBufferMono[i] = val;
+                mBufferStereo[2*i] = 0; // mute channel L (usually the upper speaker, please check before use)
+                mBufferStereo[2*i+1] = val; // only use channel R (usually the lower speaker)
+            } else { // fill with 0
+                mBufferMono[i] = 0;
+                mBufferStereo[2*i] = 0;
+                mBufferStereo[2*i+1] = 0;
+            }
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.N)
+    public void updateChirp() {
+        // parse long message as double array
+        String[] mSoundStr = message.split(",", 0);
+        double[] mSoundVal = Arrays.stream(mSoundStr).mapToDouble(Double::parseDouble).toArray(); // should be -1 ~ 1
+        PostInfo("Received values: ", mSoundVal.length);
+
+        // check if the buffer is being written
+        if (mCurrentBufferState == BUFFER_READY) {
+
+            mCurrentBufferState = BUFFER_WRITING;
+            Log.d("DataReceiveThread", "start writing");
+
+            // update mono buffer if data length <= mono buffer length
+            // we encourage you to fill your update data with 0
+            // also, please update when it's not playing
+            if (mSoundVal.length <= buffer_length) {
+                PostInfo("Update mono chirp buffer.");
+                for (int i = 0; i < buffer_length; i++) {
+                    if (i < mSoundVal.length) {
+                        mBufferMono[i] = (short) (mSoundVal[i] * Short.MAX_VALUE);
+                    } else {
+                        mBufferMono[i] = 0;
+                    }
+                }
+            } else if (mSoundVal.length <= buffer_length * 2) {
+                PostInfo("Update stereo chirp buffer.");
+                for (int i = 0; i < buffer_length * 2; i++) {
+                    if (i < mSoundVal.length) {
+                        mBufferStereo[i] = (short) (mSoundVal[i] * Short.MAX_VALUE);
+                    } else {
+                        mBufferStereo[i] = 0;
+                    }
+                }
+            } else {
+                PostInfo("Update data is too long.");
+            }
+
+            mCurrentBufferState = BUFFER_READY;
+            Log.d("DataReceiveThread", "finish writing");
+        }
     }
 
     public void PostInfo(String msg, int n) {
@@ -524,7 +634,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         txtInfo.post(new Runnable() {
             @Override
             public void run() {
-                String text = msg + '\n' + txtInfo.getText();
+                // timestamp
+                Date c = Calendar.getInstance().getTime();
+                SimpleDateFormat df = new SimpleDateFormat("[HH:mm:ss] ");
+                String timestamp = df.format(c);
+                String text = timestamp + msg + '\n' + txtInfo.getText();
                 txtInfo.setText(text);
             }
         });
