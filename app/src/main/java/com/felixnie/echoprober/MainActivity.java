@@ -92,11 +92,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     // for sound design
     int f0 = 15000;
-    int f1 = 22000;
+    int f1 = 20000;
     int sample_rate = 44100;
     int chirp_length = 100;
-    int buffer_length = 4800; // changed from 4000 to 4800 to comply with iOS version
-    double[] mSound = new double[buffer_length];
+    int buffer_length = 4000; // changed from 4000 to 4800 to comply with iOS version; 1600 fpr faster sample rate
+    // double[] mSound = new double[buffer_length];
     short[] mBufferMono = new short[buffer_length];
     short[] mBufferStereo = new short[buffer_length * 2];
 
@@ -132,9 +132,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         // default settings:
         //     mono buffer: linear chirp without windowing, will play with all speakers
         //     stereo buffer: linear chirp without windowing, only channel R is enabled
-        calculateChirp(f0, f1, sample_rate, chirp_length, buffer_length);
+        // calculateChirp(f0, f1, sample_rate, chirp_length, buffer_length);
+        generateChirp(100, 4000, 15000, 20000, 1.0, "none", "right");
+        generateChirp(100, 4000, 15000, 20000, 0.0, "none", "left");
+        generateChirp(100, 4000, 15000, 20000, 1.0, "none", "mono");
+        // generateChirp(100, 1600, 15000, 22000, 1.0, "hann", "right");
+        // generateTone(100, 1600, 14000, 1.0, "left");
 
-        // components
+            // components
         btnConnect = findViewById(R.id.btnConnect);
         btnDisconnect = findViewById(R.id.btnDisconnect);
         btnPlay = findViewById(R.id.btnPlay);
@@ -444,8 +449,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 boolean isOffline = socket == null || socket.isClosed(); // if it's uninitiated or disconnected
                 boolean isTrainTest = file_label.startsWith("train") || file_label.startsWith("test"); // if the file name has prefix
                 boolean isPlaying = mCurrentActionState == ACTION_PLAYING; // if it's playing (timing)
-                // training data recording time: 120s; test data recording time: 12s
-                int data_recording_time = file_label.startsWith("train") ? 120000 : 12000;
+                // training data recording time: 90s; test data recording time: 9s
+                int data_recording_time = file_label.startsWith("train") ? 90000 : 9000;
 
                 // offline mode actions
                 if (isOffline && isTrainTest && !isPlaying) { // offline mode, with prefix, when stopped -> will stop as scheduled
@@ -560,23 +565,80 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         });
     }
 
-    public void calculateChirp(double f0, double f1, double fs, int chirp_length, int buffer_length) {
-        // update mBufferMono and mBufferStereo
-        for (int i = 0; i < buffer_length; i++) {
-            if (i < chirp_length) {
-                double t1 = chirp_length / fs;
-                double beta = (f1-f0) / t1;
-                double t = i / fs;
-                double value = Math.cos(2.0 * Math.PI * (beta / 2.0 * t * t + f0 * t));
-                double hamming = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / chirp_length);
-                short val = (short) (value * hamming * Short.MAX_VALUE); // windowed chirp
-                mBufferMono[i] = val;
-                mBufferStereo[2*i] = 0; // mute channel L (usually the upper speaker, please check before use)
-                mBufferStereo[2*i+1] = val; // only use channel R (usually the lower speaker)
+    public void generateChirp(int chirp_len, int duration, double f0, double f1, double volume, String window, String target) {
+        double fs = sample_rate;
+        double t1 = (double) chirp_len / fs;
+        double beta = (f1-f0) / t1;
+        double t;
+        double value;
+        double win;
+        double hann;
+        short value_short;
+        for (int i = 0; i < duration; i++) {
+            if (i < chirp_len) {
+                t = i / fs;
+                value = Math.cos(2.0 * Math.PI * (beta / 2.0 * t * t + f0 * t));
+                switch (window) {
+                    case "hann":
+                        hann = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / chirp_len);
+                        win = hann;
+                        break;
+                    default:
+                        win = 1.0;
+                        break;
+                }
+
+                value_short = (short) (value * win * volume * Short.MAX_VALUE); // windowed chirp
             } else { // fill with 0
-                mBufferMono[i] = 0;
-                mBufferStereo[2*i] = 0;
-                mBufferStereo[2*i+1] = 0;
+                value_short = 0;
+            }
+
+            switch (target) {
+                case "mono":
+                    mBufferMono[i] = value_short; // both channels will play the same audio
+                    break;
+                case "left":
+                    mBufferStereo[2*i] = value_short; // channel L, usually the upper speaker
+                    break;
+                case "right":
+                    mBufferStereo[2*i+1] = value_short; // channel R, usually the lower speaker
+                    break;
+                default:
+                    // warnings
+                    break;
+            }
+        }
+    }
+
+    public void generateTone(int tone_len, int duration, double f, double volume, String target) {
+        double fs = sample_rate;
+        double t1 = tone_len / fs;
+        double beta = (f1-f0) / t1;
+        double t;
+        double value;
+        short value_short;
+        for (int i = 0; i < duration; i++) {
+            if (i < tone_len) {
+                t = i / fs;
+                value = Math.cos(2.0 * Math.PI * f * t);
+                value_short = (short) (value * volume * Short.MAX_VALUE); // un-windowed tone
+            } else { // fill with 0
+                value_short = 0;
+            }
+
+            switch (target) {
+                case "mono":
+                    mBufferMono[i] = value_short; // both channels will play the same audio
+                    break;
+                case "left":
+                    mBufferStereo[2*i] = value_short; // channel L, usually the upper speaker
+                    break;
+                case "right":
+                    mBufferStereo[2*i+1] = value_short; // channel R, usually the lower speaker
+                    break;
+                default:
+                    // warnings
+                    break;
             }
         }
     }
@@ -588,40 +650,40 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         double[] mSoundVal = Arrays.stream(mSoundStr).mapToDouble(Double::parseDouble).toArray(); // should be -1 ~ 1
         PostInfo("Received values: ", mSoundVal.length);
 
-        // check if the buffer is being written
-        if (mCurrentBufferState == BUFFER_READY) {
-
-            mCurrentBufferState = BUFFER_WRITING;
-            Log.d("DataReceiveThread", "start writing");
-
-            // update mono buffer if data length <= mono buffer length
-            // we encourage you to fill your update data with 0
-            // also, please update when it's not playing
-            if (mSoundVal.length <= buffer_length) {
-                PostInfo("Update mono chirp buffer.");
-                for (int i = 0; i < buffer_length; i++) {
-                    if (i < mSoundVal.length) {
-                        mBufferMono[i] = (short) (mSoundVal[i] * Short.MAX_VALUE);
-                    } else {
-                        mBufferMono[i] = 0;
-                    }
-                }
-            } else if (mSoundVal.length <= buffer_length * 2) {
-                PostInfo("Update stereo chirp buffer.");
-                for (int i = 0; i < buffer_length * 2; i++) {
-                    if (i < mSoundVal.length) {
-                        mBufferStereo[i] = (short) (mSoundVal[i] * Short.MAX_VALUE);
-                    } else {
-                        mBufferStereo[i] = 0;
-                    }
-                }
-            } else {
-                PostInfo("Update data is too long.");
-            }
-
-            mCurrentBufferState = BUFFER_READY;
-            Log.d("DataReceiveThread", "finish writing");
-        }
+//        // check if the buffer is being written
+//        if (mCurrentBufferState == BUFFER_READY) {
+//
+//            mCurrentBufferState = BUFFER_WRITING;
+//            Log.d("DataReceiveThread", "start writing");
+//
+//            // update mono buffer if data length <= mono buffer length
+//            // we encourage you to fill your update data with 0
+//            // also, please update when it's not playing
+//            if (mSoundVal.length <= buffer_length) {
+//                PostInfo("Update mono chirp buffer.");
+//                for (int i = 0; i < buffer_length; i++) {
+//                    if (i < mSoundVal.length) {
+//                        mBufferMono[i] = (short) (mSoundVal[i] * Short.MAX_VALUE);
+//                    } else {
+//                        mBufferMono[i] = 0;
+//                    }
+//                }
+//            } else if (mSoundVal.length <= buffer_length * 2) {
+//                PostInfo("Update stereo chirp buffer.");
+//                for (int i = 0; i < buffer_length * 2; i++) {
+//                    if (i < mSoundVal.length) {
+//                        mBufferStereo[i] = (short) (mSoundVal[i] * Short.MAX_VALUE);
+//                    } else {
+//                        mBufferStereo[i] = 0;
+//                    }
+//                }
+//            } else {
+//                PostInfo("Update data is too long.");
+//            }
+//
+//            mCurrentBufferState = BUFFER_READY;
+//            Log.d("DataReceiveThread", "finish writing");
+//        }
     }
 
     public void PostInfo(String msg, int n) {
